@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    /* Configurações Básicas */
+    "target": "es2016",
+    "module": "commonjs",             /* Define que é um projeto Node padrão */
+    "moduleResolution": "node",       /* Ajuda a encontrar os pacotes */
+    "esModuleInterop": true,          /* Permite usar "import express from 'express'" */
+    
+    /* Pastas */
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    /* Regras Estritas (Desativando a regra que causou o erro) */
+    "strict": true,
+    "verbatimModuleSyntax": false,    /* <--- O SEGREDO ESTÁ AQUI: TEM QUE SER FALSE */
+    "skipLibCheck": true              /* Ignora erros dentro das bibliotecas node_modules */
+  },
+  "ts-node": {
+    "esm": false                      /* Garante que o ts-node rode em modo clássico */
+  },
+  "include": ["src/**/*"]
+}
