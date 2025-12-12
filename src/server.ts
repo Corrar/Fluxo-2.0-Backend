@@ -177,20 +177,17 @@ app.get('/products/low-stock', authenticate, async (req, res) => {
 });
 
 app.post('/products', authenticate, async (req, res) => {
-  // ADICIONADO: sales_price para permitir cadastro inicial já com preço de venda
   const { sku, name, description, unit, min_stock, quantity, unit_price, sales_price } = req.body;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // ADICIONADO: sales_price na query de INSERT
     const productRes = await client.query(
       'INSERT INTO products (sku, name, description, unit, min_stock, unit_price, sales_price) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
       [sku, name, description, unit, min_stock, unit_price || 0, sales_price || 0]
     );
     const newProduct = productRes.rows[0];
 
-    // [CORREÇÃO] Usa ON CONFLICT para evitar erro se o trigger do banco já tiver criado a linha de estoque
     const initialQty = quantity ? parseFloat(quantity) : 0;
     await client.query(
       `INSERT INTO stock (product_id, quantity_on_hand, quantity_reserved) 
@@ -217,13 +214,11 @@ app.post('/products', authenticate, async (req, res) => {
 
 app.put('/products/:id', authenticate, async (req, res) => {
   const { id } = req.params;
-  // ADICIONADO: sales_price na desestruturação
   const { sku, name, description, unit, min_stock, quantity, unit_price, sales_price } = req.body;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // ADICIONADO: sales_price na query de UPDATE
     const { rows } = await client.query(
       `UPDATE products SET 
           sku = COALESCE($1, sku), 
@@ -315,14 +310,22 @@ app.put('/stock/:id', authenticate, async (req, res) => {
   }
 });
 
+// CORREÇÃO: Validação de itens na Entrada Manual
 app.post('/manual-entry', authenticate, async (req, res) => {
   const { items } = req.body;
   const client = await pool.connect();
   try {
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "Nenhum item enviado para entrada." });
+    }
+
     await client.query('BEGIN');
     const logRes = await client.query("INSERT INTO xml_logs (file_name, success, total_items) VALUES ($1, $2, $3) RETURNING id", [`Entrada Manual - ${new Date().toLocaleDateString('pt-BR')}`, true, items.length]);
     const logId = logRes.rows[0].id;
+    
     for (const item of items) {
+      if (!item.product_id || !item.quantity) throw new Error("Item inválido na lista.");
+      
       await client.query("INSERT INTO xml_items (xml_log_id, product_id, quantity) VALUES ($1, $2, $3)", [logId, item.product_id, item.quantity]);
       await client.query("UPDATE stock SET quantity_on_hand = quantity_on_hand + $1 WHERE product_id = $2", [item.quantity, item.product_id]);
     }
@@ -330,28 +333,39 @@ app.post('/manual-entry', authenticate, async (req, res) => {
     res.status(201).json({ success: true });
   } catch (error: any) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: error.message });
+    console.error("Erro na entrada manual:", error);
+    res.status(500).json({ error: error.message || "Erro ao processar entrada" });
   } finally {
     client.release();
   }
 });
 
+// CORREÇÃO: Validação de itens na Saída Manual
 app.post('/manual-withdrawal', authenticate, async (req, res) => {
   const { sector, items } = req.body;
   const client = await pool.connect();
   try {
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "Nenhum item enviado para retirada." });
+    }
+
     await client.query('BEGIN');
     const sepRes = await client.query('INSERT INTO separations (destination, status, type) VALUES ($1, $2, $3) RETURNING id', [sector, 'concluida', 'manual']);
     const separationId = sepRes.rows[0].id;
+    
     for (const item of items) {
+      if (!item.product_id || !item.quantity) throw new Error("Item inválido na lista.");
+
       await client.query('INSERT INTO separation_items (separation_id, product_id, quantity) VALUES ($1, $2, $3)', [separationId, item.product_id, item.quantity]);
       await client.query('UPDATE stock SET quantity_on_hand = quantity_on_hand - $1 WHERE product_id = $2', [item.quantity, item.product_id]);
     }
+    
     await client.query('COMMIT');
     res.status(201).json({ success: true });
   } catch (error: any) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: error.message });
+    console.error("Erro na saída manual:", error);
+    res.status(500).json({ error: error.message || "Erro ao processar saída" });
   } finally {
     client.release();
   }
