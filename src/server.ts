@@ -23,7 +23,7 @@ app.use(helmet());
 const allowedOrigins = [
   'http://localhost:5173',       
   'http://localhost:3000',       
-  'https://fluxo-royale.vercel.app'
+  'https://fluxo-2-0-frontend.vercel.app'
 ];
 
 const corsOptions = {
